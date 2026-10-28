@@ -13,6 +13,9 @@
 // 1. 系統組態配置 (APP_CONFIG)
 // ==========================================
 const APP_CONFIG = {
+  // 若使用獨立腳本 (Standalone Script)，可在此填入現有試算表 ID；留空則自動新建
+  SPREADSHEET_ID: '',
+
   SHEET_NAMES: {
     NEWS: 'News_Feed',
     CONFIG: 'System_Config',
@@ -128,9 +131,71 @@ const Utils = {
 // ==========================================
 class SheetService {
   constructor() {
-    this.ss = SpreadsheetApp.getActiveSpreadsheet();
-    if (!this.ss) {
-      throw new Error('無法取得目前試算表實例，請確認腳本已綁定 Google Sheets。');
+    this.ss = this.resolveSpreadsheet();
+  }
+
+  /**
+   * 智慧取得或建立試算表實例
+   * 1. 容器綁定腳本 (Container-bound): 直接取得 active spreadsheet
+   * 2. 獨立腳本 (Standalone): 透過 APP_CONFIG.SPREADSHEET_ID 開啟
+   * 3. 若皆無: 自動建立新的試算表並記錄其 ID 至 ScriptProperties
+   */
+  resolveSpreadsheet() {
+    // 優先嘗試從當前活動容器獲取
+    try {
+      const active = SpreadsheetApp.getActiveSpreadsheet();
+      if (active) return active;
+    } catch (e) {
+      // 忽略容器獲取失敗
+    }
+
+    // 次之嘗試使用靜態配置 SPREADSHEET_ID
+    if (APP_CONFIG.SPREADSHEET_ID && APP_CONFIG.SPREADSHEET_ID.trim() !== '') {
+      try {
+        return SpreadsheetApp.openById(APP_CONFIG.SPREADSHEET_ID.trim());
+      } catch (err) {
+        Logger.log('無法透過 APP_CONFIG.SPREADSHEET_ID 開啟試算表: ' + err.message);
+      }
+    }
+
+    // 再次嘗試從 ScriptProperties 讀取先前自動建立的 ID
+    const scriptProps = PropertiesService.getScriptProperties();
+    const savedId = scriptProps.getProperty('AUTO_SPREADSHEET_ID');
+    if (savedId) {
+      try {
+        return SpreadsheetApp.openById(savedId);
+      } catch (err) {
+        Logger.log('先前儲存的試算表 ID 已無效，將自動重新建立: ' + err.message);
+      }
+    }
+
+    // 全自動建立全新試算表
+    const newSheet = SpreadsheetApp.create('AMD 新聞情報庫');
+    const newId = newSheet.getId();
+    const newUrl = newSheet.getUrl();
+    scriptProps.setProperty('AUTO_SPREADSHEET_ID', newId);
+
+    Logger.log('========================================================');
+    Logger.log('【系統提示】檢測到您在獨立腳本環境中執行，已自動為您建立試算表！');
+    Logger.log('試算表名稱: AMD 新聞情報庫');
+    Logger.log('試算表網址: ' + newUrl);
+    Logger.log('試算表 ID:  ' + newId);
+    Logger.log('========================================================');
+
+    return newSheet;
+  }
+
+  /**
+   * 顯示提示或日誌
+   */
+  notifyUser(message, title = '系統訊息') {
+    Logger.log(`[${title}] ${message}`);
+    try {
+      if (this.ss && typeof this.ss.toast === 'function') {
+        this.ss.toast(message, title, 6);
+      }
+    } catch (e) {
+      // 無 UI 模式下忽略 toast 異常
     }
   }
 
@@ -206,9 +271,14 @@ class SheetService {
   seedDefaultConfig() {
     const configSheet = this.ss.getSheetByName(APP_CONFIG.SHEET_NAMES.CONFIG);
     if (configSheet.getLastRow() <= 1) {
+      let defaultEmail = 'admin@example.com';
+      try {
+        defaultEmail = Session.getActiveUser().getEmail() || defaultEmail;
+      } catch (e) {}
+
       const defaultConfigs = [
         ['ENABLE_EMAIL_NOTIFICATION', 'FALSE', '是否在每日抓取後發送彙整信件 (TRUE/FALSE)'],
-        ['NOTIFICATION_EMAIL', Session.getActiveUser().getEmail() || 'admin@example.com', '接收彙整通知的 Email 地址'],
+        ['NOTIFICATION_EMAIL', defaultEmail, '接收彙整通知的 Email 地址'],
         ['RETENTION_DAYS', '90', '新聞保留天數 (超過自動歸檔或刪除，0 代表永久保留)'],
         ['MIN_KEYWORD_MATCH', 'TRUE', '是否啟動嚴格關鍵字比對過濾 (TRUE/FALSE)']
       ];
@@ -664,7 +734,7 @@ class NewsCollectorApp {
 function initSystem() {
   const service = new SheetService();
   service.initializeSheets();
-  SpreadsheetApp.getActiveSpreadsheet().toast('工作表初始化完成！', 'AMD News Collector', 5);
+  service.notifyUser('工作表初始化完成！', 'AMD News Collector');
 }
 
 /**
@@ -680,7 +750,8 @@ function mainDailyCollectNews() {
  */
 function setupTrigger() {
   TriggerManager.setupDailyTrigger();
-  SpreadsheetApp.getActiveSpreadsheet().toast('已成功建立每日早上 07:00 排程 Trigger！', '觸發器設定', 5);
+  const service = new SheetService();
+  service.notifyUser('已成功建立每日早上 07:00 排程 Trigger！', '觸發器設定');
 }
 
 /**
@@ -688,17 +759,18 @@ function setupTrigger() {
  */
 function clearAllTriggers() {
   TriggerManager.removeTriggers('mainDailyCollectNews');
-  SpreadsheetApp.getActiveSpreadsheet().toast('已清除所有自動排程 Trigger。', '觸發器清除', 5);
+  const service = new SheetService();
+  service.notifyUser('已清除所有自動排程 Trigger。', '觸發器清除');
 }
 
 /**
  * 手動即刻執行新聞收集測試
  */
 function manualRunTest() {
+  const service = new SheetService();
   const result = NewsCollectorApp.run();
-  SpreadsheetApp.getActiveSpreadsheet().toast(
+  service.notifyUser(
     `抓取完成！新增 ${result.totalInserted} 則新聞，重複略過 ${result.totalSkipped} 則。`,
-    '手動同步結果',
-    8
+    '手動同步結果'
   );
 }

@@ -1,7 +1,7 @@
 # AMD 新聞自動收集與監控系統 (GAS + Google Sheets)
 
 - **作者 GitHub**: [https://github.com/linuxfab](https://github.com/linuxfab)
-- **最後更新時間**: 2026-10-29 00:08:00 (Asia/Taipei)
+- **最後更新時間**: 2026-10-29 00:15:00 (Asia/Taipei)
 - **維護者**: linuxfab (linuxfab@gmail.com)
 
 ---
